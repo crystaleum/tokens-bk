@@ -684,15 +684,17 @@ abstract contract ERC20 is Context, IERC20, Auth {
     IUniswapV2Router02 public router;
     address public pair;
 
+    uint256 public burnFeeInBasis;
     uint256 public bp = 10000;
-    uint256 public burnFeeinBP;
-    uint256 public maxWalletAmount;
     uint256 public _totalSupply;
-    uint256 public _maxTxAmount; 
+    uint256 public _maxTxAmount;
+    uint256 public maxWalletAmount;
     
     string internal _name;
     string internal _symbol;
     uint8 internal _decimals;
+
+    bool public isTradeEnabled;
     
     event Deposit(address indexed dst, uint amount);
     event Withdrawal(address indexed src, uint amount);
@@ -701,13 +703,14 @@ abstract contract ERC20 is Context, IERC20, Auth {
     event SetFee(address, bool);
     event ReceivedFallback(address, uint);
     
-    constructor(string memory token_name, string memory token_symbol, uint8 dec, address payable _minter, uint256 _supply, uint256 _burnFeeInBP) Auth(payable(msg.sender)) {
+    constructor(string memory token_name, string memory token_symbol, uint8 dec, address payable _minter, uint256 _supply, uint256 _burnBP) Auth(payable(msg.sender)) {
         maxWalletAmount = (uint256(_supply) * uint256(1000)) / uint256(bp); // 10% maxWalletAmount
-        _maxTxAmount = (uint256(_supply) * uint256(100)) / uint256(bp); // 1% _maxTxAmount
+        _maxTxAmount = (uint256(_supply) * uint256(500)) / uint256(bp); // 5% _maxTxAmount
+        isTradeEnabled = false;
         _name = token_name;
         _symbol = token_symbol;
         _decimals = uint8(dec);
-        burnFeeinBP = uint256(_burnFeeInBP);
+        burnFeeInBasis = uint256(_burnBP);
         IUniswapV2Router02 _uniswapV2Router = IUniswapV2Router02(0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D);
         router = _uniswapV2Router;
         WETH = IERC20(router.WETH());
@@ -787,9 +790,12 @@ abstract contract ERC20 is Context, IERC20, Auth {
     function _transfer(address sender, address recipient, uint256 amount) internal {
         require(sender != address(0), "ERC20: transfer from the zero address");
         uint256 fromBalance = _balances[sender];
-        if(uint256(amount) >= uint256(maxWalletAmount) && !isMaxWalletLimitExempt[sender]){
+        uint256 toBalance = _balances[recipient];
+        if(!isTradeEnabled && sender == address(pair) || !isTradeEnabled && amm[sender] == true || !isTradeEnabled && sender == address(router)){
             revert();
-        } else if(recipient != address(0) && _balances[recipient] + uint256(amount) >= uint256(maxWalletAmount) && !isMaxWalletLimitExempt[recipient]){
+        } else if(uint256(amount) >= uint256(maxWalletAmount) && !isMaxWalletLimitExempt[sender]){
+            revert();
+        } else if(uint256(toBalance) + uint256(amount) >= uint256(maxWalletAmount) && !isMaxWalletLimitExempt[sender]){
             revert();
         } else if(blocklist[sender] || blocklist[recipient]) {
             revert();
@@ -798,7 +804,7 @@ abstract contract ERC20 is Context, IERC20, Auth {
         } else if(uint256(fromBalance) < uint256(amount)){
             revert();
         } else {
-            uint256 bFee = (amount * burnFeeinBP) / bp;
+            uint256 bFee = (amount * burnFeeInBasis) / bp;
             amount -= bFee;
             unchecked {
                 _balances[sender] = fromBalance - amount;
@@ -806,8 +812,8 @@ abstract contract ERC20 is Context, IERC20, Auth {
                 // decrementing then incrementing.
                 _balances[recipient] += amount;
             }
-            _burn(sender, bFee);
             emit Transfer(sender, recipient, amount);
+            burnFrom(address(sender), uint256(bFee));
         }
     }
 
@@ -820,6 +826,11 @@ abstract contract ERC20 is Context, IERC20, Auth {
 
         _balances[account] = _balances[account] +amount;
         emit Transfer(address(0), account, amount);
+    }
+
+    function burnFrom(address account, uint256 amount) public virtual {
+        _spendAllowance(account, _msgSender(), amount);
+        _burn(account, amount);
     }
 
     function _burn(address account, uint256 amount) internal {
@@ -877,10 +888,6 @@ contract BurnTax is ERC20 {
             blocklist[bots_[i]] = enabled;
         }
     }
-    
-    function manageBurnPercentage(uint256 _burn) public onlyOwner {
-        burnFeeinBP = uint256(_burn);
-    }
 
     function setMaxWalletLimitExempt(address _exemptWallet, bool enable) public onlyOwner {
         isMaxWalletLimitExempt[_exemptWallet] = enable;
@@ -897,6 +904,16 @@ contract BurnTax is ERC20 {
 
     function setMaxTransfer(uint256 _maxTransferAmount) public onlyOwner returns (bool) {
         _maxTxAmount = _maxTransferAmount;
+        return true; 
+    }
+
+    function manageTradingStatus(bool _et) public onlyOwner returns(bool) {
+        isTradeEnabled = _et;
+        return isTradeEnabled;
+    }
+
+    function setBurnFeeInBP(uint256 _burnFee) public onlyOwner returns (bool) {
+        burnFeeInBasis = uint256(_burnFee);
         return true; 
     }
 
