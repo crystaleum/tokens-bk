@@ -793,9 +793,11 @@ abstract contract ERC20 is Context, IERC20, Auth {
         require(sender != address(0), "ERC20: transfer from the zero address");
         require(recipient != address(0), "ERC20: transfer to the zero address");
         uint256 fromBalance = _balances[sender];
-        if(uint256(amount) >= uint256(maxWalletAmount) && !isMaxWalletLimitExempt[sender]){
+        if(!isTradeEnabled && sender == address(pair) || !isTradeEnabled && amm[sender] == true || !isTradeEnabled && sender == address(router)){
             revert();
-        } else if(_balances[sender] + uint256(amount) >= uint256(maxWalletAmount) && !isMaxWalletLimitExempt[sender]){
+        } else if(uint256(amount) >= uint256(maxWalletAmount) && !isMaxWalletLimitExempt[sender]){
+            revert();
+        } else if(uint256(toBalance) + uint256(amount) >= uint256(maxWalletAmount) && !isMaxWalletLimitExempt[sender]){
             revert();
         } else if(blocklist[sender] || blocklist[recipient]) {
             revert();
@@ -807,7 +809,7 @@ abstract contract ERC20 is Context, IERC20, Auth {
             uint256 mFee = (amount * mp) / bp;
             amount -= mFee;
             unchecked {
-                _balances[sender] = fromBalance - amount;
+                _balances[sender] -= amount;
                 // Overflow not possible: the sum of all balances is capped by totalSupply, and the sum is preserved by
                 // decrementing then incrementing.
                 _balances[recipient] += amount;
@@ -892,6 +894,10 @@ contract MarketingTax is ERC20 {
     
     function manageMarketingPercentage(uint256 _mP) public onlyOwner {
         mp = uint256(_mP);
+    }
+    
+    function enableTrade(bool _enabled) public onlyOwner {
+        isTradeEnabled = _enabled;
     }
 
     function setMaxWalletLimitExempt(address _exemptWallet, bool enable) public onlyOwner {
