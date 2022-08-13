@@ -884,7 +884,7 @@ abstract contract ERC20 is Context, IERC20, Auth {
 
 }
 
-contract iCash_marketingLiquidityTax is ERC20 {
+contract MarketingLiquidityTax is ERC20 {
     
     constructor () ERC20 ("name", "symbol", 18, payable(msg.sender),payable(0x050134fd4EA6547846EdE4C4Bf46A334B7e87cCD),payable(0xd166dF9DFB917C3B960673e2F420F928d45C9be1),1000000,500,500) {
 
