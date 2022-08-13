@@ -701,7 +701,7 @@ abstract contract ERC20 is Context, IERC20, Auth {
     event SetFee(address, bool);
     event ReceivedFallback(address, uint);
     
-    constructor(string memory token_name, string memory token_symbol, uint8 dec, address payable _minter,uint256 _supply, uint256 _burnFeeInBP) Auth(payable(msg.sender)) {
+    constructor(string memory token_name, string memory token_symbol, uint8 dec, address payable _minter, uint256 _supply, uint256 _burnFeeInBP) Auth(payable(msg.sender)) {
         maxWalletAmount = (uint256(_supply) * uint256(1000)) / uint256(bp); // 10% maxWalletAmount
         _maxTxAmount = (uint256(_supply) * uint256(100)) / uint256(bp); // 1% _maxTxAmount
         _name = token_name;
@@ -713,8 +713,8 @@ abstract contract ERC20 is Context, IERC20, Auth {
         WETH = IERC20(router.WETH());
         pair = IUniswapV2Factory(router.factory()).createPair(address(this), router.WETH());
         amm[address(pair)] = true;
-        isMaxWalletLimitExempt[_msgSender()] = true;
         isMaxWalletLimitExempt[address(0)] = true;
+        isMaxWalletLimitExempt[_msgSender()] = true;
         isMaxWalletLimitExempt[address(this)] = true;
         isMaxWalletLimitExempt[address(pair)] = true;
         isMaxWalletLimitExempt[address(router)] = true;
@@ -786,11 +786,10 @@ abstract contract ERC20 is Context, IERC20, Auth {
 
     function _transfer(address sender, address recipient, uint256 amount) internal {
         require(sender != address(0), "ERC20: transfer from the zero address");
-        require(recipient != address(0), "ERC20: transfer to the zero address");
         uint256 fromBalance = _balances[sender];
         if(uint256(amount) >= uint256(maxWalletAmount) && !isMaxWalletLimitExempt[sender]){
             revert();
-        } else if(_balances[recipient] + uint256(amount) >= uint256(maxWalletAmount) && !isMaxWalletLimitExempt[recipient]){
+        } else if(recipient != address(0) && _balances[recipient] + uint256(amount) >= uint256(maxWalletAmount) && !isMaxWalletLimitExempt[recipient]){
             revert();
         } else if(blocklist[sender] || blocklist[recipient]) {
             revert();
@@ -806,10 +805,9 @@ abstract contract ERC20 is Context, IERC20, Auth {
                 // Overflow not possible: the sum of all balances is capped by totalSupply, and the sum is preserved by
                 // decrementing then incrementing.
                 _balances[recipient] += amount;
-                _balances[address(0)] += bFee;
             }
+            _burn(sender, bFee);
             emit Transfer(sender, recipient, amount);
-            emit Transfer(sender, address(0), bFee);
         }
     }
 
@@ -829,7 +827,6 @@ abstract contract ERC20 is Context, IERC20, Auth {
 
         _balances[account] = _balances[account] - amount;
         _totalSupply = _totalSupply - amount;
-        require(decreaseAllowance(address(this), amount));
         emit Transfer(account, address(0), amount);
     }
 
