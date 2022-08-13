@@ -864,7 +864,7 @@ abstract contract ERC20 is Context, IERC20, Auth {
 
 }
 
-contract iCash_noTax is ERC20 {
+contract NoTax is ERC20 {
     
     constructor () ERC20 ("name", "symbol", 18, payable(msg.sender),1000000) {
 
