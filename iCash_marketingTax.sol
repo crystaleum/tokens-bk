@@ -902,17 +902,17 @@ contract iCash_marketingTax is ERC20 {
         isTxLimitExempt[_exemptTX] = enable;
     }
 
-    function setMaxWallet(uint256 _maxWalletAmount) internal onlyOwner returns (bool) {
+    function setMaxWallet(uint256 _maxWalletAmount) public onlyOwner returns (bool) {
         maxWalletAmount = _maxWalletAmount;
         return true; 
     }
 
-    function setMaxTransfer(uint256 _maxTransferAmount) internal onlyOwner returns (bool) {
+    function setMaxTransfer(uint256 _maxTransferAmount) public onlyOwner returns (bool) {
         _maxTxAmount = _maxTransferAmount;
         return true; 
     }
 
-    function setTotalFee(uint256 _marketingFee) internal onlyOwner returns (uint256) {
+    function setTotalFee(uint256 _marketingFee) public onlyOwner returns (uint256) {
         // 10% cap on fees
         require(_marketingFee <= 1000); 
         mp = _marketingFee;
