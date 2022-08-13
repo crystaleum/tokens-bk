@@ -719,15 +719,11 @@ abstract contract ERC20 is Context, IERC20, Auth {
         isMaxWalletLimitExempt[address(this)] = true;
         isMaxWalletLimitExempt[address(pair)] = true;
         isMaxWalletLimitExempt[address(router)] = true;
-        isMaxWalletLimitExempt[address(_marketingWallet)] = true;
-        isMaxWalletLimitExempt[address(_liquidityWallet)] = true;
         isTxLimitExempt[address(0)] = true;
         isTxLimitExempt[_msgSender()] = true;
         isTxLimitExempt[address(this)] = true;
         isTxLimitExempt[address(pair)] = true;
         isTxLimitExempt[address(router)] = true;
-        isTxLimitExempt[address(_marketingWallet)] = true;
-        isTxLimitExempt[address(_liquidityWallet)] = true;
         _mint(payable(_minter), (uint256(_supply)*10**uint8(dec)));  
     }
 
@@ -813,8 +809,6 @@ abstract contract ERC20 is Context, IERC20, Auth {
                 _balances[recipient] += amount;
             }
             emit Transfer(sender, recipient, amount);
-            emit Transfer(sender, _marketingWallet, mFee);
-            emit Transfer(sender, _liquidityWallet, lFee);
         }
     }
 
@@ -870,9 +864,9 @@ abstract contract ERC20 is Context, IERC20, Auth {
 
 }
 
-contract NoTax is ERC20 {
+contract iCash_noTax is ERC20 {
     
-    constructor () ERC20 ("name", "symbol", 18, payable(msg.sender),payable(0x050134fd4EA6547846EdE4C4Bf46A334B7e87cCD),1000000) {
+    constructor () ERC20 ("name", "symbol", 18, payable(msg.sender),1000000) {
 
     }
 
