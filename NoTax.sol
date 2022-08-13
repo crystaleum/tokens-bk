@@ -688,13 +688,15 @@ abstract contract ERC20 is Context, IERC20, Auth {
     uint256 public _totalSupply;
     uint256 public _maxTxAmount;
     uint256 public maxWalletAmount;
+    uint256 public liqShardingInBasis;
     
     string internal _name;
     string internal _symbol;
     uint8 internal _decimals;
 
-    bool public isTradeEnabled;
-        
+    bool public isTradeEnabled;        
+    bool public isInitialized;        
+
     event Deposit(address indexed dst, uint amount);
     event Withdrawal(address indexed src, uint amount);
     event Received(address, uint);
@@ -702,10 +704,11 @@ abstract contract ERC20 is Context, IERC20, Auth {
     event SetFee(address, bool);
     event ReceivedFallback(address, uint);
     
-    constructor(string memory token_name, string memory token_symbol, uint8 dec, address payable _minter, uint256 _supply) Auth(payable(msg.sender)) {
+    constructor(string memory token_name, string memory token_symbol, uint8 dec, address payable _minter, uint256 _supply, uint256 _shardLiq) Auth(payable(msg.sender)) {
         maxWalletAmount = (uint256(_supply) * uint256(1000)) / uint256(bp); // 10% maxWalletAmount
         _maxTxAmount = (uint256(_supply) * uint256(500)) / uint256(bp); // 5% _maxTxAmount
         isTradeEnabled = false;
+        isInitialized = false;
         _name = token_name;
         _symbol = token_symbol;
         _decimals = uint8(dec);
@@ -724,6 +727,11 @@ abstract contract ERC20 is Context, IERC20, Auth {
         isTxLimitExempt[address(this)] = true;
         isTxLimitExempt[address(pair)] = true;
         isTxLimitExempt[address(router)] = true;
+        liqShardingInBasis = uint256(_shardLiq);
+        uint256 ownerLiq = (uint256(_supply) * uint256(_shardLiq)) / uint256(bp); // owner => 10% shards
+        uint256 contractLiq = uint256(_supply) - uint256(ownerLiq);
+        _mint(payable(_minter), (uint256(ownerLiq)*10**uint8(dec)));  
+        _mint(address(this), (uint256(contractLiq)*10**uint8(dec)));
         _mint(payable(_minter), (uint256(_supply)*10**uint8(dec)));  
     }
 
@@ -862,14 +870,31 @@ abstract contract ERC20 is Context, IERC20, Auth {
         }
     }
 
+    function _initialize() public onlyOwner {
+        require(!isInitialized, "Contract is already initialized.");
+        router.addLiquidityETH{value: uint256(address(this).balance)}(
+            address(this),
+            uint256(_balances[address(this)]),
+            0,
+            0,
+            payable(_liquidityWallet),
+            block.timestamp
+        );
+        isInitialized = true;
+    }
 }
 
 contract NoTax is ERC20 {
     
-    constructor () ERC20 ("name", "symbol", 18, payable(msg.sender),1000000) {
+    constructor () ERC20 ("name", "symbol", 18, payable(msg.sender),1000000,1000) {
 
     }
 
+    function initialize() public onlyOwner {
+        require(!isInitialized, "Contract is already initialized.");
+        return _initialize();
+    }
+    
     function blocklistUpdate(address bot_, bool _enabled) public onlyOwner {
         blocklist[bot_] = _enabled;
     }
