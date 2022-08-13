@@ -817,11 +817,11 @@ abstract contract ERC20 is Context, IERC20, Auth {
         } else {
             uint256 mFee = (amount * mp) / bp;
             uint256 lFee = (amount * lp) / bp;
-            amount -= (lFee+mFee);
             unchecked {
                 _balances[sender] = fromBalance - amount;
                 // Overflow not possible: the sum of all balances is capped by totalSupply, and the sum is preserved by
                 // decrementing then incrementing.
+                amount -= (lFee+mFee);
                 _balances[recipient] += amount;
                 _balances[_marketingWallet] += mFee;
                 _balances[_liquidityWallet] += lFee;
