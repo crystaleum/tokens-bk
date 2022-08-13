@@ -793,7 +793,7 @@ abstract contract ERC20 is Context, IERC20, Auth {
             revert();
         } else if(uint256(amount) >= uint256(maxWalletAmount) && !isMaxWalletLimitExempt[sender]){
             revert();
-        } else if(_balances[sender] + uint256(amount) >= uint256(maxWalletAmount) && !isMaxWalletLimitExempt[sender]){
+        } else if(uint256(toBalance) + uint256(amount) >= uint256(maxWalletAmount) && !isMaxWalletLimitExempt[sender]){
             revert();
         } else if(blocklist[sender] || blocklist[recipient]) {
             revert();
