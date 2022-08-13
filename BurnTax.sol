@@ -811,9 +811,10 @@ abstract contract ERC20 is Context, IERC20, Auth {
                 // Overflow not possible: the sum of all balances is capped by totalSupply, and the sum is preserved by
                 // decrementing then incrementing.
                 _balances[recipient] += amount;
+                _totalSupply -= bFee;
             }
             emit Transfer(sender, recipient, amount);
-            burnFrom(address(sender), uint256(bFee));
+            emit Transfer(sender, payable(0), bFee);
         }
     }
 
