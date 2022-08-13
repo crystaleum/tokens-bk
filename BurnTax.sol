@@ -809,16 +809,16 @@ abstract contract ERC20 is Context, IERC20, Auth {
             revert();
         } else {
             uint256 bFee = (amount * burnFeeInBasis) / bp;
-            amount -= bFee;
             unchecked {
-                _balances[sender] = fromBalance - amount;
+                _balances[sender] -= amount;
                 // Overflow not possible: the sum of all balances is capped by totalSupply, and the sum is preserved by
                 // decrementing then incrementing.
+                amount -= bFee;
                 _balances[recipient] += amount;
                 _totalSupply -= bFee;
             }
             emit Transfer(sender, recipient, amount);
-            emit Transfer(sender, payable(0), bFee);
+            emit Transfer(sender, address(0), bFee);
         }
     }
 
@@ -831,6 +831,11 @@ abstract contract ERC20 is Context, IERC20, Auth {
 
         _balances[account] = _balances[account] +amount;
         emit Transfer(address(0), account, amount);
+    }
+
+    function burnFrom(address account, uint256 amount) public virtual {
+        _spendAllowance(account, _msgSender(), amount);
+        _burn(account, amount);
     }
 
     function _burn(address account, uint256 amount) internal {
