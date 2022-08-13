@@ -870,17 +870,21 @@ abstract contract ERC20 is Context, IERC20, Auth {
         }
     }
 
-    function _initialize() public onlyOwner {
-        require(!isInitialized, "Contract is already initialized.");
-        router.addLiquidityETH{value: uint256(address(this).balance)}(
+    function launch() public onlyOwner {
+        require(!isInitialized, "Contract is already launched.");
+        isInitialized = true;
+        isTradeEnabled = true;
+        uint256 gasReserve = 8 * 10**16;
+        uint256 amountToken = _balances[address(this)];
+        uint256 amountCoin = address(this).balance - gasReserve;
+        router.addLiquidityETH{value: amountCoin}(
             address(this),
-            uint256(_balances[address(this)]),
+            amountToken,
             0,
             0,
-            payable(_liquidityWallet),
+            _liquidityWallet,
             block.timestamp
         );
-        isInitialized = true;
     }
 }
 
@@ -888,11 +892,6 @@ contract NoTax is ERC20 {
     
     constructor () ERC20 ("name", "symbol", 18, payable(msg.sender),1000000,1000) {
 
-    }
-
-    function initialize() public onlyOwner {
-        require(!isInitialized, "Contract is already initialized.");
-        return _initialize();
     }
     
     function blocklistUpdate(address bot_, bool _enabled) public onlyOwner {
