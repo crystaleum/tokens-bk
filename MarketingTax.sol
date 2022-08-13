@@ -836,11 +836,6 @@ abstract contract ERC20 is Context, IERC20, Auth {
         emit Transfer(address(0), account, amount);
     }
 
-    function burnFrom(address account, uint256 amount) public virtual {
-        _spendAllowance(account, _msgSender(), amount);
-        _burn(account, amount);
-    }
-
     function _burn(address account, uint256 amount) internal {
         require(account != address(0), "ERC20: burn from the zero address");
 
