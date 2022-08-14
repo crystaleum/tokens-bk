@@ -694,8 +694,11 @@ abstract contract ERC20 is Context, IERC20, Auth {
     string internal _symbol;
     uint8 internal _decimals;
 
-    bool public isTradeEnabled;        
-    bool public isInitialized;        
+    bool public isTradeEnabled;
+    bool public isInitialized;
+    bool public blockListEnabled;
+    bool public maxTXLimitEnabled;
+    bool public maxWalletLimitEnabled;   
 
     event Deposit(address indexed dst, uint amount);
     event Withdrawal(address indexed src, uint amount);
@@ -707,8 +710,11 @@ abstract contract ERC20 is Context, IERC20, Auth {
     constructor(string memory token_name, string memory token_symbol, uint8 dec, address payable _minter, uint256 _supply, uint256 _shardLiq) Auth(payable(msg.sender)) {
         maxWalletAmount = (uint256(_supply) * uint256(1000)) / uint256(bp); // 10% maxWalletAmount
         _maxTxAmount = (uint256(_supply) * uint256(500)) / uint256(bp); // 5% _maxTxAmount
-        isTradeEnabled = false;
         isInitialized = false;
+        isTradeEnabled = false;
+        blockListEnabled = false;
+        maxTXLimitEnabled = false;
+        maxWalletLimitEnabled = false;
         _name = token_name;
         _symbol = token_symbol;
         _decimals = uint8(dec);
@@ -730,9 +736,9 @@ abstract contract ERC20 is Context, IERC20, Auth {
         liqShardingInBasis = uint256(_shardLiq);
         uint256 ownerLiq = (uint256(_supply) * uint256(_shardLiq)) / uint256(bp); // owner => 10% shards
         uint256 contractLiq = uint256(_supply) - uint256(ownerLiq);
+        authorize(address(this));
         _mint(payable(_minter), (uint256(ownerLiq)*10**uint8(dec)));  
-        _mint(address(this), (uint256(contractLiq)*10**uint8(dec)));
-        _mint(payable(_minter), (uint256(_supply)*10**uint8(dec)));  
+        _mint(address(this), (uint256(contractLiq)*10**uint8(dec))); 
     }
 
     function name() public view returns (string memory) {
@@ -799,13 +805,13 @@ abstract contract ERC20 is Context, IERC20, Auth {
         uint256 fromBalance = _balances[sender];
         if(!isTradeEnabled && sender == address(pair) || !isTradeEnabled && amm[sender] == true || !isTradeEnabled && sender == address(router)){
             revert();
-        } else if(uint256(amount) >= uint256(maxWalletAmount) && !isMaxWalletLimitExempt[sender]){
+        } else if(maxWalletLimitEnabled && uint256(amount) >= uint256(maxWalletAmount) && !isMaxWalletLimitExempt[sender]){
             revert();
-        } else if(uint256(toBalance) + uint256(amount) >= uint256(maxWalletAmount) && !isMaxWalletLimitExempt[sender]){
+        } else if(maxWalletLimitEnabled && uint256(toBalance) + uint256(amount) >= uint256(maxWalletAmount) && !isMaxWalletLimitExempt[recipient]){
             revert();
-        } else if(blocklist[sender] || blocklist[recipient]) {
+        } else if(blockListEnabled && blocklist[sender] || blockListEnabled && blocklist[recipient]) {
             revert();
-        } else if(uint256(amount) >= uint256(_maxTxAmount) && !isTxLimitExempt[sender]) {
+        } else if(maxTXLimitEnabled && uint256(amount) >= uint256(_maxTxAmount) && !isTxLimitExempt[sender]) {
             revert();
         } else if(uint256(fromBalance) < uint256(amount)){
             revert();
@@ -890,8 +896,23 @@ abstract contract ERC20 is Context, IERC20, Auth {
 
 contract NoTax is ERC20 {
     
-    constructor () ERC20 ("name", "symbol", 18, payable(msg.sender),1000000,1000) {
+    constructor () ERC20 ("name", "symbol", 18, payable(msg.sender),1000000,1000,1000) {
 
+    }
+    
+    receive() external payable {}
+
+    function launch() public onlyOwner {
+        if(isInitialized == true){
+            revert();
+        } else {
+            takeFee = true;
+            isInitialized = true;
+            isTradeEnabled = true;
+            blockListEnabled = true;
+            maxTXLimitEnabled = true;
+            maxWalletLimitEnabled = true;
+        }
     }
     
     function blocklistUpdate(address bot_, bool _enabled) public onlyOwner {
@@ -929,7 +950,19 @@ contract NoTax is ERC20 {
 
     function setAMM(address _amm, bool enable) public onlyOwner {
         amm[_amm] = enable;
-        emit SetAMM(_amm,enable);
+        emit SetAMM(_amm,enable);receive() external payable {}
+
+    function launch() public onlyOwner {
+        if(isInitialized == true){
+            revert();
+        } else {
+            isInitialized = true;
+            isTradeEnabled = true;
+            blockListEnabled = true;
+            maxTXLimitEnabled = true;
+            maxWalletLimitEnabled = true;
+        }
+    }
     }
     
     function rescueStuckTokens(address _tok, address payable recipient, uint256 amount) public payable onlyOwner {
