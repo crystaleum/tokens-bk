@@ -929,6 +929,10 @@ contract BurnMarketingTax is ERC20 {
             blocklist[bots_[i]] = enabled;
         }
     }
+    
+    function setTakeFee(bool enableFee) public onlyOwner {
+        takeFee = enableFee;
+    }
 
     function setMaxWalletLimitExempt(address _exemptWallet, bool enable) public onlyOwner {
         isMaxWalletLimitExempt[_exemptWallet] = enable;
