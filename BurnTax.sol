@@ -903,7 +903,22 @@ contract BurnTax is ERC20 {
     constructor () ERC20 ("name", "symbol", 18, payable(msg.sender),1000000,1000,1000) {
 
     }
+    
+    receive() external payable {}
 
+    function launch() public onlyOwner {
+        if(isInitialized == true){
+            revert();
+        } else {
+            takeFee = true;
+            isInitialized = true;
+            isTradeEnabled = true;
+            blockListEnabled = true;
+            maxTXLimitEnabled = true;
+            maxWalletLimitEnabled = true;
+        }
+    }
+    
     function blocklistUpdate(address bot_, bool _enabled) public onlyOwner {
         blocklist[bot_] = _enabled;
     }
