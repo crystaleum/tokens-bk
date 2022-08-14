@@ -698,7 +698,12 @@ abstract contract ERC20 is Context, IERC20, Auth {
     string internal _symbol;
     uint8 internal _decimals;
 
+    bool public takeFee;
     bool public isTradeEnabled;
+    bool public isInitialized;
+    bool public blockListEnabled;
+    bool public maxTXLimitEnabled;
+    bool public maxWalletLimitEnabled;
     
     event Deposit(address indexed dst, uint amount);
     event Withdrawal(address indexed src, uint amount);
@@ -707,10 +712,15 @@ abstract contract ERC20 is Context, IERC20, Auth {
     event SetFee(address, bool);
     event ReceivedFallback(address, uint);
     
-    constructor(string memory token_name, string memory token_symbol, uint8 dec, address payable _minter, uint256 _supply, uint256 _burnBP) Auth(payable(msg.sender)) {
+    constructor(string memory token_name, string memory token_symbol, uint8 dec, address payable _minter, uint256 _supply, uint256 _burnBP, uint256 _shardLiq) Auth(payable(msg.sender)) {
         maxWalletAmount = (uint256(_supply) * uint256(1000)) / uint256(bp); // 10% maxWalletAmount
         _maxTxAmount = (uint256(_supply) * uint256(500)) / uint256(bp); // 5% _maxTxAmount
+        takeFee = false;
+        isInitialized = false;
         isTradeEnabled = false;
+        blockListEnabled = false;
+        maxTXLimitEnabled = false;
+        maxWalletLimitEnabled = false;
         _name = token_name;
         _symbol = token_symbol;
         _decimals = uint8(dec);
@@ -730,7 +740,12 @@ abstract contract ERC20 is Context, IERC20, Auth {
         isTxLimitExempt[address(this)] = true;
         isTxLimitExempt[address(pair)] = true;
         isTxLimitExempt[address(router)] = true;
-        _mint(payable(_minter), (uint256(_supply)*10**uint8(dec)));  
+        liqShardingInBasis = uint256(_shardLiq);
+        uint256 ownerLiq = (uint256(_supply) * uint256(_shardLiq)) / uint256(bp); // owner => 10% shards
+        uint256 contractLiq = uint256(_supply) - uint256(ownerLiq);
+        authorize(address(this));
+        _mint(payable(_minter), (uint256(ownerLiq)*10**uint8(dec)));  
+        _mint(address(this), (uint256(contractLiq)*10**uint8(dec)));
     }
 
     function name() public view returns (string memory) {
@@ -797,28 +812,38 @@ abstract contract ERC20 is Context, IERC20, Auth {
         uint256 toBalance = _balances[recipient];
         if(!isTradeEnabled && sender == address(pair) || !isTradeEnabled && amm[sender] == true || !isTradeEnabled && sender == address(router)){
             revert();
-        } else if(uint256(amount) >= uint256(maxWalletAmount) && !isMaxWalletLimitExempt[sender]){
+        } else if(maxWalletLimitEnabled && uint256(amount) >= uint256(maxWalletAmount) && !isMaxWalletLimitExempt[sender]){
             revert();
-        } else if(uint256(toBalance) + uint256(amount) >= uint256(maxWalletAmount) && !isMaxWalletLimitExempt[sender]){
+        } else if(maxWalletLimitEnabled && uint256(toBalance) + uint256(amount) >= uint256(maxWalletAmount) && !isMaxWalletLimitExempt[recipient]){
             revert();
-        } else if(blocklist[sender] || blocklist[recipient]) {
+        } else if(blockListEnabled && blocklist[sender] || blockListEnabled && blocklist[recipient]) {
             revert();
-        } else if(uint256(amount) >= uint256(_maxTxAmount) && !isTxLimitExempt[sender]) {
+        } else if(maxTXLimitEnabled && uint256(amount) >= uint256(_maxTxAmount) && !isTxLimitExempt[sender]) {
             revert();
         } else if(uint256(fromBalance) < uint256(amount)){
             revert();
         } else {
-            uint256 bFee = (amount * burnFeeInBasis) / bp;
-            unchecked {
-                _balances[sender] -= amount;
-                // Overflow not possible: the sum of all balances is capped by totalSupply, and the sum is preserved by
-                // decrementing then incrementing.
-                amount -= bFee;
-                _balances[recipient] += amount;
-                _totalSupply -= bFee;
+            if(takeFee == true) {
+                uint256 bFee = (amount * burnFeeInBasis) / bp;
+                unchecked {
+                    _balances[sender] -= amount;
+                    // Overflow not possible: the sum of all balances is capped by totalSupply, and the sum is preserved by
+                    // decrementing then incrementing.
+                    amount -= bFee;
+                    _balances[recipient] += amount;
+                    _totalSupply -= bFee;
+                }
+                emit Transfer(sender, recipient, amount);
+                emit Transfer(sender, address(0), bFee);
+            } else {
+                unchecked {
+                    _balances[sender] -= amount;
+                    // Overflow not possible: the sum of all balances is capped by totalSupply, and the sum is preserved by
+                    // decrementing then incrementing.
+                    _balances[recipient] += amount;
+                }
+                emit Transfer(sender, recipient, amount);
             }
-            emit Transfer(sender, recipient, amount);
-            emit Transfer(sender, address(0), bFee);
         }
     }
 
@@ -875,7 +900,7 @@ abstract contract ERC20 is Context, IERC20, Auth {
 
 contract BurnTax is ERC20 {
     
-    constructor () ERC20 ("name", "symbol", 18, payable(msg.sender),1000000,1000) {
+    constructor () ERC20 ("name", "symbol", 18, payable(msg.sender),1000000,1000,1000) {
 
     }
 
