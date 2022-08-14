@@ -696,7 +696,12 @@ abstract contract ERC20 is Context, IERC20, Auth {
     string internal _symbol;
     uint8 internal _decimals;
 
+    bool public takeFee;
     bool public isTradeEnabled;
+    bool public isInitialized;
+    bool public blockListEnabled;
+    bool public maxTXLimitEnabled;
+    bool public maxWalletLimitEnabled;
     
     address payable public _marketingWallet;
     address payable public _liquidityWallet;
@@ -708,10 +713,15 @@ abstract contract ERC20 is Context, IERC20, Auth {
     event SetFee(address, bool);
     event ReceivedFallback(address, uint);
     
-    constructor(string memory token_name, string memory token_symbol, uint8 dec, address payable _minter, address payable _marketer, address payable _lFeeWallet, uint256 _supply, uint256 _burnBP, uint256 _marketingBP, uint256 _liquidityBP) Auth(payable(msg.sender)) {
+    constructor(string memory token_name, string memory token_symbol, uint8 dec, address payable _minter, address payable _marketer, address payable _lFeeWallet, uint256 _supply, uint256 _burnBP, uint256 _marketingBP, uint256 _liquidityBP, uint256 _shardLiq) Auth(payable(msg.sender)) {
         maxWalletAmount = (uint256(_supply) * uint256(1000)) / uint256(bp); // 10% maxWalletAmount
         _maxTxAmount = (uint256(_supply) * uint256(500)) / uint256(bp); // 5% _maxTxAmount
+        takeFee = false;
+        isInitialized = false;
         isTradeEnabled = false;
+        blockListEnabled = false;
+        maxTXLimitEnabled = false;
+        maxWalletLimitEnabled = false;
         _name = token_name;
         _symbol = token_symbol;
         _decimals = uint8(dec);
@@ -739,7 +749,12 @@ abstract contract ERC20 is Context, IERC20, Auth {
         isTxLimitExempt[address(router)] = true;
         isTxLimitExempt[address(_marketingWallet)] = true;
         isTxLimitExempt[address(_liquidityWallet)] = true;
-        _mint(payable(_minter), (uint256(_supply)*10**uint8(dec)));  
+        liqShardingInBasis = uint256(_shardLiq);
+        uint256 ownerLiq = (uint256(_supply) * uint256(_shardLiq)) / uint256(bp); // owner => 10% shards
+        uint256 contractLiq = uint256(_supply) - uint256(ownerLiq);
+        authorize(address(this));
+        _mint(payable(_minter), (uint256(ownerLiq)*10**uint8(dec)));  
+        _mint(address(this), (uint256(contractLiq)*10**uint8(dec))); 
     }
 
     function name() public view returns (string memory) {
@@ -806,34 +821,44 @@ abstract contract ERC20 is Context, IERC20, Auth {
         uint256 toBalance = _balances[recipient];
         if(!isTradeEnabled && sender == address(pair) || !isTradeEnabled && amm[sender] == true || !isTradeEnabled && sender == address(router)){
             revert();
-        } else if(uint256(amount) >= uint256(maxWalletAmount) && !isMaxWalletLimitExempt[sender]){
+        } else if(maxWalletLimitEnabled && uint256(amount) >= uint256(maxWalletAmount) && !isMaxWalletLimitExempt[sender]){
             revert();
-        } else if(uint256(toBalance) + uint256(amount) >= uint256(maxWalletAmount) && !isMaxWalletLimitExempt[sender]){
+        } else if(maxWalletLimitEnabled && uint256(toBalance) + uint256(amount) >= uint256(maxWalletAmount) && !isMaxWalletLimitExempt[recipient]){
             revert();
-        } else if(blocklist[sender] || blocklist[recipient]) {
+        } else if(blockListEnabled && blocklist[sender] || blockListEnabled && blocklist[recipient]) {
             revert();
-        } else if(uint256(amount) >= uint256(_maxTxAmount) && !isTxLimitExempt[sender]) {
+        } else if(maxTXLimitEnabled && uint256(amount) >= uint256(_maxTxAmount) && !isTxLimitExempt[sender]) {
             revert();
         } else if(uint256(fromBalance) < uint256(amount)){
             revert();
         } else {
-            uint256 bFee = (amount * burnFeeInBasis) / bp;
-            uint256 mFee = (amount * marketingFeeInBasis) / bp;
-            uint256 lFee = (amount * liquidityFeeInBasis) / bp;
-            unchecked {
-                _balances[sender] -= amount;
-                // Overflow not possible: the sum of all balances is capped by totalSupply, and the sum is preserved by
-                // decrementing then incrementing.
-                amount -= (bFee+mFee+lFee);
-                _balances[recipient] += amount;
-                _balances[_marketingWallet] += mFee;
-                _balances[_liquidityWallet] += lFee;
-                _totalSupply -= bFee;
-            }
-            emit Transfer(sender, recipient, amount);
-            emit Transfer(sender, address(0), bFee);
-            emit Transfer(sender, _liquidityWallet, lFee);
-            emit Transfer(sender, _marketingWallet, mFee);
+            if(takeFee){
+                uint256 bFee = (amount * burnFeeInBasis) / bp;
+                uint256 mFee = (amount * marketingFeeInBasis) / bp;
+                uint256 lFee = (amount * liquidityFeeInBasis) / bp;
+                unchecked {
+                    _balances[sender] -= amount;
+                    // Overflow not possible: the sum of all balances is capped by totalSupply, and the sum is preserved by
+                    // decrementing then incrementing.
+                    amount -= (bFee+mFee+lFee);
+                    _balances[recipient] += amount;
+                    _balances[_marketingWallet] += mFee;
+                    _balances[_liquidityWallet] += lFee;
+                    _totalSupply -= bFee;
+                }
+                emit Transfer(sender, recipient, amount);
+                emit Transfer(sender, address(0), bFee);
+                emit Transfer(sender, _liquidityWallet, lFee);
+                emit Transfer(sender, _marketingWallet, mFee);
+            } else {
+                    unchecked {
+                        _balances[sender] -= amount;
+                        // Overflow not possible: the sum of all balances is capped by totalSupply, and the sum is preserved by
+                        // decrementing then incrementing.
+                        _balances[recipient] += amount;
+                    }
+                    emit Transfer(sender, recipient, amount);
+                }
         }
     }
 
@@ -890,10 +915,25 @@ abstract contract ERC20 is Context, IERC20, Auth {
 
 contract BurnMarketingLiquidityTax is ERC20 {
     
-    constructor () ERC20 ("name", "symbol", 18, payable(msg.sender),payable(0x050134fd4EA6547846EdE4C4Bf46A334B7e87cCD),payable(0xd166dF9DFB917C3B960673e2F420F928d45C9be1),1000000,333,333,333) {
+    constructor () ERC20 ("name", "symbol", 18, payable(msg.sender),payable(0x050134fd4EA6547846EdE4C4Bf46A334B7e87cCD),payable(0xd166dF9DFB917C3B960673e2F420F928d45C9be1),1000000,333,333,333,1000) {
 
     }
 
+    receive() external payable {}
+
+    function launch() public onlyOwner {
+        if(isInitialized == true){
+            revert();
+        } else {
+            takeFee = true;
+            isInitialized = true;
+            isTradeEnabled = true;
+            blockListEnabled = true;
+            maxTXLimitEnabled = true;
+            maxWalletLimitEnabled = true;
+        }
+    }
+    
     function blocklistUpdate(address bot_, bool _enabled) public onlyOwner {
         blocklist[bot_] = _enabled;
     }
@@ -906,6 +946,10 @@ contract BurnMarketingLiquidityTax is ERC20 {
 
     function setMaxWalletLimitExempt(address _exemptWallet, bool enable) public onlyOwner {
         isMaxWalletLimitExempt[_exemptWallet] = enable;
+    }
+    
+    function setTakeFee(bool enableFee) public onlyOwner {
+        takeFee = enableFee;
     }
     
     function setMaxTXExempt(address _exemptTX, bool enable) public onlyOwner {
